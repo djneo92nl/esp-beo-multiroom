@@ -1,0 +1,10 @@
+.pio/
+managed_components/
+sdkconfig.*
+dependencies.lock
+__pycache__/
+captures/
+
+# third-party checkout (djerik/beo, its own repository); the tools and tests read it
+beo/
+.dummy/

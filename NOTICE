@@ -1,0 +1,11 @@
+esp32 network speaker (unofficial proof of concept)
+
+Contains protocol constants, message shapes and field orders derived from
+beo (https://github.com/djerik/beo), Copyright 2026 Tobias Laursen,
+licensed under the Apache License 2.0. This product includes software
+developed by Tobias Laursen. See docs/esp32-port/DERIVED.md for which files
+are derived and from what; they were rewritten in C++ for the ESP32.
+
+Not affiliated with, endorsed by, or supported by Bang & Olufsen. Beo,
+Mozart, NetworkLink, BeoLink and Bang & Olufsen are trademarks of Bang &
+Olufsen, used only to name the protocols.
