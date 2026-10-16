@@ -44,6 +44,7 @@ JitterBuffer *jb = nullptr;
 std::atomic<bool> fpsRun{false};
 std::atomic<bool> fpsTaskAlive{false};
 std::atomic<uint32_t> wantRate{44100};
+std::atomic<uint32_t> toneUntilMs{0}; // test tone: 1 kHz, bypasses the stream and the volume
 std::atomic<uint32_t> lastBeatMs{0};
 std::string sourceJid;
 uint32_t badLogged = 0; // unrecognised datagrams reported this session (fps task only)
@@ -96,7 +97,24 @@ bool i2sEnsure(uint32_t rate) {
 void audioTask(void *) {
   static int16_t out[fps::kFramesPerDatagram * 2];
   float gain = 0.f;
+  float phase = 0.f;
   for (;;) {
+    uint32_t until = toneUntilMs.load();
+    if (until && (int32_t)(until - millis()) > 0) {
+      // 1 kHz at -12 dBFS, both channels: tells wiring and DAC apart from the network stream.
+      if (!i2sEnsure(44100)) { vTaskDelay(pdMS_TO_TICKS(500)); continue; }
+      const float step = 2.f * 3.14159265f * 1000.f / 44100.f;
+      for (size_t i = 0; i < fps::kFramesPerDatagram; i++) {
+        int16_t v = (int16_t)(sinf(phase) * 8192.f);
+        phase += step;
+        if (phase > 6.2831853f) phase -= 6.2831853f;
+        out[2 * i] = v;
+        out[2 * i + 1] = v;
+      }
+      size_t w = 0;
+      i2s_channel_write(tx, out, sizeof out, &w, pdMS_TO_TICKS(200));
+      continue;
+    }
     uint32_t want = wantRate.load();
     bool have = false;
     {
@@ -106,7 +124,7 @@ void audioTask(void *) {
         if (b) {
           float max = (float)(gMax.load() > 0 ? gMax.load() : 100);
           float v = gMuted.load() ? 0.f : (float)gLevel.load() / max;
-          float target = v * v; // a squared curve is closer to loudness than a linear one
+          float target = v * sqrtf(v); // v^1.5: between linear and squared (squared at the default level was -21 dB, too quiet)
           const int16_t *in = reinterpret_cast<const int16_t *>(b);
           const size_t n = fps::kFramesPerDatagram;
           float step = (target - gain) / (float)n;
@@ -465,9 +483,9 @@ void linkTask(void *) {
   for (;;) {
     if (millis() - lastHeap > 10000) {
       lastHeap = millis();
-      log_i("%s: heap free %u, largest block %u, min ever %u; wifi status %d rssi %d ip %s", kTag,
+      log_i("%s: heap free %u, largest block %u, min ever %u; wifi status %d rssi %d dBm ch %d txpower %d (0.25 dBm units) bssid %s ip %s", kTag,
             (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-            (unsigned)esp_get_minimum_free_heap_size(), (int)WiFi.status(), (int)WiFi.RSSI(), WiFi.localIP().toString().c_str());
+            (unsigned)esp_get_minimum_free_heap_size(), (int)WiFi.status(), (int)WiFi.RSSI(), (int)WiFi.channel(), (int)WiFi.getTxPower(), WiFi.BSSIDstr().c_str(), WiFi.localIP().toString().c_str());
     }
     // requests from the app side
     if (reqLeave.exchange(false)) env.rx->leave();
@@ -547,6 +565,11 @@ void linkTask(void *) {
 } // namespace
 
 LinkPort &linkPort() { return port; }
+
+void linkTestTone() {
+  log_i("%s: test tone for 5 s on BCK/LRCK/DATA", kTag);
+  toneUntilMs = millis() + 5000;
+}
 
 void linkSetVolume(int level, int maximum, bool muted) {
   gLevel = level;

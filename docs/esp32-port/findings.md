@@ -1197,3 +1197,28 @@ Things this run settled or changed:
   Wi-Fi gap: Phase 3's drift correction.
 - The line-in of the M5 and Moment stays blocked (§11); `DECIMATE`-only with an updated configuration entry is
   still untried.
+
+---
+
+## 13. Follow-ups (2026-10-15/16)
+
+- **The beo developer measured two more sources** (a Beoplay M3 and a Beosound Edge, line-in `PROPRIETARY`): both
+  send the normal 0x1234 PCM stream; so `PROPRIETARY` does not always mean encrypted. Our Moment sends 0x4321,
+  1972 B, 480 frames / 10 ms: possibly an older FPS variant or a different scheme. He suggested: complete
+  datagrams, silence as a contrast, the Moment's NSDK logs (`Encryption ON/OFF`, `HDCP library`,
+  `StreamingVersions`), and a B&O listener's logs.
+- **Our analysis of the one complete datagram:** no PCM layout (S16LE/BE, S24, S32, any channel, offsets 32 to 59)
+  is smooth (neighbour-difference / amplitude ratio 1.34, uniform noise 1.40, real audio far below 1). Entropy 7.756
+  bits/byte (random 7.901 +/- 0.009), so there is structure: after a 4-byte `03 04 10 5e` the payload is 121 blocks of
+  16 bytes with **32 repeated blocks**, one of them 13 times on the same 16-byte alignment. Identical blocks mapping to
+  identical blocks is what a block cipher without chaining does; it is not what PCM does. Not proven (one datagram).
+  Playing silence on the Moment's line-in would show whether it collapses to one repeated block.
+- **Decoding a protected stream is not something this project's assistant does.** If the Moment's logs say
+  encryption is off and show a different framing, implementing that framing is ordinary interoperability.
+- **A Beoplay M3's B&O Radio streams 44.1 kHz PCM** (format code 1, beo's native), the M5's 48 kHz (code 2). Both
+  join from the app, both play into I2S (verified by the driver running and the buffer draining in step; not heard).
+- **DECIMATE** is used for TV-product sources (AV In, HDMI, TV, net radio) in this network's capture. Spotify is
+  `linkable: false` on all four products that list it.
+- **Wi-Fi on the test board is weak** (-67 to -85 dBm next to the AP, TX power at its 19.5 dBm maximum).
+- **Audio output: not heard.** The 1 kHz test tone (Settings > Audio) ran with I2S on BCK 26 / LRCK 25 / DATA 22; the
+  PCM5102 board's configuration pads are unbridged (see docs/hardware.md).

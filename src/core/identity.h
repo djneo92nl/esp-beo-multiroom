@@ -12,6 +12,10 @@ struct Identity {
   std::string firmware = "1.9.0.30523";   // 2-4 numeric parts only, or the app crashes
   std::string product_default_name = "Beolab 8";
   std::string product_type = "SEOUL";     // the app's name for type 3150
+  // Whether we claim to handle PROPRIETARY content (in Connect and in the shared-configuration entry).
+  // beo does. A Moment answered "Unable to add sink" without it (findings 11.1); a setting lets us
+  // test again with the entry and the Connect consistent.
+  bool claim_proprietary = true;
 
   std::string bare_jid() const { return type_no + "." + item_no + "." + serial; }
   std::string jid() const { return bare_jid() + "@products.bang-olufsen.com"; }

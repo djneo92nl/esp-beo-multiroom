@@ -10,16 +10,16 @@ namespace {
 constexpr const char *kDomain = "products.bang-olufsen.com";
 constexpr size_t kMaxStanza = 24 * 1024;
 
-// What a listener says it can decode (escaped XML inside the Connect). The line break after
-// the declaration is part of it: the content is text, so a parser does not smooth it over.
-// beo declares NONE, DECIMATE and PROPRIETARY, and so do we: a Beosound Moment refuses ("Unable
-// to add sink") a listener that does not claim PROPRIETARY (findings.md section 11.1). What it
-// then sends is not plain PCM, and nothing here plays it.
-const char *kCpCapabilities =
-    "&lt;?xml version=\"1.0\" encoding=\"utf-8\"?&gt;\n"
-    "&lt;CpCapabilities&gt;&lt;ProtectionSchemes&gt;&lt;Scheme&gt;NONE&lt;/Scheme&gt;"
-    "&lt;Scheme&gt;DECIMATE&lt;/Scheme&gt;&lt;Scheme&gt;PROPRIETARY&lt;/Scheme&gt;"
-    "&lt;/ProtectionSchemes&gt;&lt;/CpCapabilities&gt;";
+// What a listener says it can decode (escaped XML inside the Connect). The line break after the
+// declaration is part of it: the content is text, so a parser does not smooth it over. beo declares
+// NONE, DECIMATE and PROPRIETARY, and so do we by default; a setting drops PROPRIETARY.
+std::string cp_capabilities(bool proprietary) {
+  return std::string("&lt;?xml version=\"1.0\" encoding=\"utf-8\"?&gt;\n"
+                     "&lt;CpCapabilities&gt;&lt;ProtectionSchemes&gt;&lt;Scheme&gt;NONE&lt;/Scheme&gt;"
+                     "&lt;Scheme&gt;DECIMATE&lt;/Scheme&gt;") +
+         (proprietary ? "&lt;Scheme&gt;PROPRIETARY&lt;/Scheme&gt;" : "") +
+         "&lt;/ProtectionSchemes&gt;&lt;/CpCapabilities&gt;";
+}
 
 std::string xesc(const std::string &s) {
   std::string o;
@@ -356,7 +356,7 @@ void NetworkLinkRx::begin_connect(int sid, const std::string &key, const std::st
   }
   send_request(sid,
                "<Connect xmlns=\"beocore.player.1\"><sourceId>" + key + "</sourceId><connectionInfo>FPS://" +
-                   env_.our_ip() + "</connectionInfo><contentProtectionInfo>" + kCpCapabilities +
+                   env_.our_ip() + "</connectionInfo><contentProtectionInfo>" + cp_capabilities(id_.claim_proprietary) +
                    "</contentProtectionInfo><uniqueSourceId><source>" + key + "</source><jid>" + jid +
                    "</jid></uniqueSourceId></Connect>",
                &cur_.connect_id);

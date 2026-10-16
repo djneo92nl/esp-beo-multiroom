@@ -19,7 +19,11 @@ extern LinkStats gLinkStats;
 // Starts the 5222 server, the audio task and (if enabled) the always-listen debug port.
 void linkStart(PlayerState *state, std::recursive_mutex *lock, Net *net);
 LinkPort &linkPort();
+// A 5 s 1 kHz tone straight to I2S (not the stream, not the volume), to check wiring and the DAC.
+void linkTestTone();
 // The product's volume changed (called from any task).
 void linkSetVolume(int level, int maximum, bool muted);
 // Enrol in the network's shared configuration, retrying until it is known to be there.
 void enrolStart(const Identity &id);
+// Send the entry once more without looking whether it is there (after the claimed schemes changed).
+void enrolSendNow(const Identity &id);

@@ -6,6 +6,7 @@
 #include <lwip/sockets.h>
 #include <mdns.h>
 
+#include <atomic>
 #include <string>
 
 #include "../core/enrol.h"
@@ -88,21 +89,25 @@ int readDocument(int fd, uint32_t timeoutMs) {
 
 enum Result { kPresent, kEnrolled, kNoLeader, kNoAnswer, kRefused };
 
-Result enrolOnce(bool allowInsert) {
+Result enrolOnce(bool allowInsert, bool skipCheck = false) {
   Leader l;
   if (!findLeader(l)) return kNoLeader;
   log_i("%s: configuration leader %s at %s", kTag, l.jid.c_str(), l.ip.c_str());
   int fd = dial(l.ip);
   if (fd < 0) return kNoAnswer;
-  sendIq(fd, l, enrol::subscribe_body());
-  int doc = readDocument(fd, 40000);
-  close(fd);
-  if (doc < 0) return kNoAnswer;
-  if (doc == 0) return kPresent;
-  if (!allowInsert) return kNoAnswer;
-  log_w("%s: %s is not in the configuration held by %s; sending its entry", kTag, gId.jid().c_str(), l.jid.c_str());
-  fd = dial(l.ip); // the leader stops answering a session that has written to it: a new one
-  if (fd < 0) return kNoAnswer;
+  if (!skipCheck) {
+    sendIq(fd, l, enrol::subscribe_body());
+    int doc = readDocument(fd, 40000);
+    close(fd);
+    if (doc < 0) return kNoAnswer;
+    if (doc == 0) return kPresent;
+    if (!allowInsert) return kNoAnswer;
+    log_w("%s: %s is not in the configuration held by %s; sending its entry", kTag, gId.jid().c_str(), l.jid.c_str());
+    fd = dial(l.ip); // the leader stops answering a session that has written to it: a new one
+    if (fd < 0) return kNoAnswer;
+  } else {
+    log_w("%s: sending the entry again, without checking (claims PROPRIETARY: %s)", kTag, gId.claim_proprietary ? "yes" : "no");
+  }
   sendIq(fd, l, enrol::insert_body(gId));
   std::string reply;
   char buf[512];
@@ -127,7 +132,20 @@ Result enrolOnce(bool allowInsert) {
   return kEnrolled;
 }
 
-void enrolTask(void *) {
+std::atomic<bool> gRunning{false};
+
+void enrolTask(void *arg) {
+  bool force = arg != nullptr;
+  if (force) {
+    // One Insert, no check: the entry in the configuration is stale (it still claims what we claimed
+    // when it was first sent). Whether an Insert replaces an existing entry is not known.
+    Result r = enrolOnce(true, true);
+    static const char *names[] = {"present", "enrolled", "no leader found", "no answer", "refused"};
+    log_w("%s: entry sent (%s). The leader answers on a session it opens to us, so 'no answer' is expected; "
+          "check by joining.", kTag, names[r]);
+    gRunning = false;
+    vTaskDelete(nullptr);
+  }
   bool inserted = false;
   for (;;) {
     // One Insert per boot: the leader's answer may arrive on a session it opened to us
@@ -145,6 +163,7 @@ void enrolTask(void *) {
     log_w("%s: not yet confirmed in the network's configuration (%s); checking again in 60 s", kTag, names[r]);
     vTaskDelay(pdMS_TO_TICKS(60000));
   }
+  gRunning = false;
   vTaskDelete(nullptr);
 }
 
@@ -152,5 +171,15 @@ void enrolTask(void *) {
 
 void enrolStart(const Identity &id) {
   gId = id;
+  if (gRunning.exchange(true)) return;
   xTaskCreatePinnedToCore(enrolTask, "enrol", 7168, nullptr, 2, nullptr, 0);
+}
+
+void enrolSendNow(const Identity &id) {
+  gId = id;
+  if (gRunning.exchange(true)) {
+    log_w("%s: an enrolment is already running", kTag);
+    return;
+  }
+  xTaskCreatePinnedToCore(enrolTask, "enrol", 7168, (void *)1, 2, nullptr, 0);
 }

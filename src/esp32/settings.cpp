@@ -25,19 +25,27 @@ String heapInfo() {
          String(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024) + " KB";
 }
 
+void sendEntryNow() { enrolSendNow(gIdentity); }
+void toneNow() { linkTestTone(); }
+
 const GsField kProductFields[] = {
     gsWithHelp(gsText("name", "Product name", "ESP32 Headphones", 32), "Shown in the B&O app. Applied after reboot."),
     gsInfo("jid", "Product id", jidInfo),
     gsInfo("serial", "Serial", serialInfo),
+    gsButton("resend", "Send enrolment entry again", sendEntryNow,
+             "Changes the configuration every B&O product on the network shares. Send once, after changing 'Claim PROPRIETARY'."),
     gsWithHelp(gsText("ptype", "Product type (mDNS)", "SEOUL", 24),
                "Announced to other products as productType. Beo uses the type name; a real M3 only answered to its hardware code (CA17). Applied after reboot."),
+    gsWithHelp(gsToggle("claimprop", "Claim PROPRIETARY support", true),
+               "Declared to sources in Connect and in the enrolment entry. Off = NONE and DECIMATE only. A Beosound Moment refused a listener that did not claim it. Applied after reboot."),
     gsWithHelp(gsToggle("enrol", "Enrol in network configuration", false),
                "Adds this product to the list every B&O product on the network shares, so sources offer it. Persistent: it is never removed from here."),
 };
 const GsGroup kProduct = gsWithReboot(gsGroup("product", "Product", "speaker", kProductFields));
 
 const GsField kAudioFields[] = {
-    gsNumber("defvol", "Default volume", 30, 0, 100, 1),
+    gsNumber("defvol", "Default volume", 60, 0, 100, 1),
+    gsButton("tone", "Play test tone (5 s)", toneNow),
     gsWithHelp(gsNumber("bufms", "Buffer (ms)", 250, 100, 600, 50), "Jitter buffer, allocated at boot and trimmed to what the free heap allows (see Status). Applied after reboot."),
     gsNumber("bck", "I2S BCK pin", 26, 0, 39, 1),
     gsNumber("ws", "I2S LRCK pin", 25, 0, 39, 1),

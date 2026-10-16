@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <esp_http_server.h>
 #include <esp_mac.h>
+#include <esp_system.h>
 #include <esp_random.h>
 #include <garnet_web.h>
 #include <garnet_settings.h>
@@ -400,6 +401,8 @@ bool addMdns() {
 // ---- public --------------------------------------------------------------------------
 
 void appInit() {
+  // A weak link right beside the access point can be a brown-out (power) or an antenna problem: say how we started.
+  log_i("boot: reset reason %d (1 power-on, 4 panic/wdt, 15 brownout)", (int)esp_reset_reason());
   // Say when the radio link drops and why: an intermittent network was the first thing to
   // look like a stream problem.
   WiFi.onEvent([](arduino_event_id_t ev, arduino_event_info_t info) {
@@ -416,6 +419,7 @@ void appInit() {
   gIdentity.mac = m;
   gIdentity.serial = deriveSerial(hex12(mac));
   // appRegisterSettings() has run, so the group is known and a never-written namespace is handled.
+  gIdentity.claim_proprietary = gsGetBool("product", "claimprop");
   String n = gsGetString("product", "name");
   if (n.length()) gIdentity.friendly = n.c_str();
   // garnet_web names the host "<name>-<mac>" unless system/hostname is set. The B&O records

@@ -23,3 +23,13 @@ near the access point.
 
 Later targets (not implemented): WT32-ETH01 (garnet_web has `examples/wt32_eth01`), Bluetooth A2DP, S/PDIF,
 ESP32-P4.
+
+## PCM5102 board notes (the CJMCU-style purple board, measured by looking at it)
+
+- Header on the long edge: SCK, BCK, DIN, LRCK, GND, VIN. Through-holes on the top edge: FMT, XSMT, DEMP, FLT,
+  A3V3, AGND, ROUT, LROUT.
+- **The four pads H1L..H4L ship unbridged**, which leaves FLT, DEMP, XSMT and FMT floating. A floating XSMT keeps the
+  chip muted. Bridge pads 1, 2 and 4 to the L end and pad 3 to the H end (which end is which: read the board; the
+  silkscreen reads H..L left to right), or wire XSMT to A3V3 and FMT, DEMP, FLT to AGND.
+- SCK to GND. Test with Settings > Audio > "Play test tone (5 s)" before involving the network.
+- The firmware drives I2S 16-bit stereo, Philips format, 44.1 or 48 kHz from the stream header.

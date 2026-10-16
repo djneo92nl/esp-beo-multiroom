@@ -24,7 +24,7 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
   expand, source changes) needs the user's explicit go-ahead, and do not try to decrypt or defeat a source's
   content protection (see below).
 
-## State (2026-10-14)
+## State (2026-10-16)
 
 | Phase | State |
 |---|---|
@@ -32,12 +32,17 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 | 1 appear in the app | **verified on hardware**: discovered, set up, volume works from the app, WebSocket snapshot works. 36/36 routes identical to beo's recorded answers (host) |
 | 2 receive and play | **verified against a real source on the unprotected path**: Beoplay M5 B&O Radio (`NONE`) joins and streams 48 kHz PCM, 0 loss on a steady link. Handshake byte-identical to beo (host). **Audio was never listened to (no DAC attached)** |
 | 3 polish | not started (see TODO) |
-| line-in of the M5 / Moment | **blocked**: `PROPRIETARY` stream is encrypted (payload is statistically random, magic `0x4321`, 10 ms / 1972 B datagrams); a source refuses a listener that does not claim `PROPRIETARY`. See findings 11 |
+| hearing it | **not done**: a PCM5102 (CJMCU-style board) is wired but silent; the firmware's test tone (Settings > Audio) ran with I2S up on 26/25/22. The board's H1L-H4L pads are unbridged (XSMT floating = muted); owner will solder. SCK is on GND |
+| Beoplay M3 B&O Radio | **streams 44.1 kHz PCM** to the board (beo's native format), ~2 % loss at -75..-85 dBm |
+| line-in of the M5 / Moment | **blocked**: payload is not audio in any PCM layout (S16LE/BE, S24, S32, offsets 32-59 all look like noise), and has repeated identical 16-byte blocks, which fits a block cipher without chaining. Not proven (one complete datagram). The beo developer's own M3/Edge send plain 0x1234 PCM on `PROPRIETARY` line-in, so 0x4321 may be an older variant: his tests (Moment log grep for `Encryption ON/OFF`, silence-vs-music, M5 as listener) would settle it. **Decrypting is out of scope for this assistant** (owner was told); a plain different framing would be implemented. Findings 11 |
 
 ## TODO, in order
 
-1. **Hear it.** Attach a PCM5102 (docs/hardware.md), play M5 B&O Radio, listen: clicks, speed, volume, mute.
-   Everything about audio quality is unverified until then.
+1. **Hear it.** Solder the PCM5102 pads (H1L, H2L, H4L to L; H3L / XSMT to H; check which end is which on the
+   board), press Settings > Audio > "Play test tone (5 s)": a 1 kHz tone straight to I2S. Then play B&O Radio from
+   an M3 or M5 and listen: clicks, speed, volume, mute. Everything about audio quality is unverified until then.
+   The board's Wi-Fi is poor (-67..-85 dBm even beside the AP, full TX power): suspect antenna or USB power;
+   try another supply or a second ESP32 before blaming the stream.
 2. **Phase 3 polish** (the log already shows the need: ~20 overruns per minute, underruns after Wi-Fi gaps):
    - drift correction: keep buffer fill near target by dropping/repeating a sample, log corrections
      (`gLinkStats.corrections` exists, unused). The source's clock runs a little ahead of I2S;
@@ -54,10 +59,11 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 4. **Untested paths:** a source dialling *us* (ConnectRequest) against a real source (only beo's Python
    source tested); 44.1 kHz stream; `tools/capture_fps.py` against a real stream and `tools/replay_fps.py`
    (never run); the debug "always listen" switch.
-5. **DECIMATE retest (needs the owner's go-ahead):** our shared-configuration entry still lists `PROPRIETARY`
-   under `Render#1/Fps#1/ContentProtection#1`. The Moment answered "Unable to add sink" when our Connect
-   declared only `NONE`/`DECIMATE`; unknown whether it looked at the Connect or at the entry. Re-inserting
-   changes the household's configuration again (whether Insert replaces is unknown). Probably moot.
+5. **DECIMATE retest (owner approved):** built, not run. Settings > Product has "Claim PROPRIETARY support"
+   (default on = beo's behaviour) and "Send enrolment entry again" (one Insert, no check). Turn the claim off,
+   reboot, send the entry, join the Moment's line-in. The Moment answered "Unable to add sink" when only the
+   Connect said NONE/DECIMATE while the stored entry still said PROPRIETARY. A TV product on the network lists
+   AV In/HDMI as `DECIMATE`, so the scheme is real, but not offered by the line-ins. Probably moot.
 6. **Enrolment robustness:** the leader replies to our request on a session *it* opens to us, not on ours, so
    `enrol_esp.cpp` cannot read the reply (it inserts once per boot, then gives up). Handle the reply in the
    inbound session (`<accepted>1</accepted>`), or stop enrolling every boot once done (a persisted flag).
@@ -85,7 +91,11 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 - One mDNS pass misses products; the peer list is kept for 20 minutes.
 - The app joins via the listener (`POST beolink/join/<jid>` to us), not via expand on the source.
 - Heap: a single big `malloc` fails long before the free total runs out; allocate in blocks at boot.
-- The Wi-Fi link at -65 to -72 dBm drops for seconds; put the board near the AP before blaming the stream.
+- The Wi-Fi link at -65 to -85 dBm drops for seconds; this particular board is poor even next to the AP.
+- The board's DHCP address changes between boots (192.168.1.158, then .33): use the mDNS name, or read the IP
+  from the serial log, before curl-ing it.
+- Real-product volume: the app sets level 0 for mute; default volume is 60 and the gain curve v^1.5 (squared
+  at 30 was -21 dB, silent through a bare DAC).
 
 ## Verify a change
 

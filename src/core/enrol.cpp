@@ -67,7 +67,7 @@ std::string entry_xml(const Identity &id) {
       item_d("Name#1", id.friendly) + item("Macs#1", item_d("Mac#1", upper(id.mac))) +
           item("Sources#1", source_entry(id)) + item_d("ConnectionType#1", "WIRELESS") + item_d("RenderDelayMs#1", "86") +
           item("Render#1",
-               item("Fps#1", item("ContentProtection#1", schemes({"NONE", "DECIMATE", "PROPRIETARY"})) +
+               item("Fps#1", item("ContentProtection#1", schemes(id.claim_proprietary ? std::vector<std::string>{"NONE", "DECIMATE", "PROPRIETARY"} : std::vector<std::string>{"NONE", "DECIMATE"})) +
                                  item("StreamingVersions#1", item_d("Ver#1", "1"))) +
                    item("Multiroom#1", item("SupportedExperiences#1", many("SupportedExperience#1", {"join", "expand"})))) +
           item("EmbeddedBinary#1", empty()) + item("Fps#1", item("StreamingVersions#1", item_d("Ver#1", "1"))) +
