@@ -46,6 +46,7 @@ std::atomic<bool> fpsRun{false};
 std::atomic<bool> fpsTaskAlive{false};
 std::atomic<uint32_t> wantRate{44100};
 std::atomic<bool> gFlush{false};      // leaving: fade out and drop what is queued
+std::atomic<uint32_t> gLastDatagramMs{0}; // when the last audio datagram arrived
 std::atomic<bool> gSourceMuted{false}; // the source's pause/mute marker
 std::atomic<uint32_t> toneUntilMs{0}; // test tone: 1 kHz, bypasses the stream and the volume
 std::atomic<uint32_t> lastBeatMs{0};
@@ -310,6 +311,7 @@ void fpsTask(void *) {
                 log_i("%s: audio datagram header: %s| first PCM bytes: %02x %02x %02x %02x %02x %02x %02x %02x", kTag, hx,
                       p.pcm[0], p.pcm[1], p.pcm[2], p.pcm[3], p.pcm[4], p.pcm[5], p.pcm[6], p.pcm[7]);
               }
+              gLastDatagramMs = millis();
               std::lock_guard<std::mutex> g(jbLock);
               if (jb) {
                 jb->push(p.pcm, p.pcm_bytes, gap);
@@ -386,6 +388,7 @@ bool fpsOpen() {
     if (!jb || jb->capacity() < 2) { log_e("%s: no jitter buffer", kTag); return false; }
     jb->reset();
   }
+  gLastDatagramMs = millis();
   log_i("%s: stream starts, buffer %u ms", kTag, (unsigned)(jb->capacity() * 1062 * 1000 / 44100));
   gLinkStats.received = gLinkStats.lost = gLinkStats.underruns = gLinkStats.overruns = 0;
   gLinkStats.markers = gLinkStats.corrections = gLinkStats.bad = 0;
@@ -485,9 +488,13 @@ public:
   bool join(const std::string &jid, const std::string &rid) override {
     std::string ip;
     for (const Peer &p : gNet->peers())
-      if (p.jid == jid) ip = p.ip;
+      if (p.jid == jid && !p.ip.empty()) ip = p.ip;
     if (ip.empty()) {
-      log_w("%s: join %s: nothing by that jid has been heard on the network", kTag, jid.c_str());
+      std::string known;
+      for (const Peer &p : gNet->peers()) known += (known.empty() ? "" : ", ") + p.jid.substr(0, p.jid.find('@'));
+      log_w("%s: join %s: nothing by that jid has been heard on the network (known: %s); looking again now", kTag, jid.c_str(),
+            known.empty() ? "nobody" : known.c_str());
+      gPeerRefreshNow = true;
       return false;
     }
     log_i("%s: join %s requested (%s)", kTag, jid.c_str(), ip.c_str());
@@ -543,6 +550,10 @@ void linkTask(void *) {
     }
     // requests from the app side
     if (reqLeave.exchange(false)) env.rx->leave();
+    if (gLinkStats.listening && millis() - gLastDatagramMs.load() > 30000) {
+      log_i("%s: no audio for 30 s: leaving", kTag);
+      env.rx->leave();
+    }
     std::string ip, jid, rid;
     {
       std::lock_guard<std::mutex> g(reqLock);

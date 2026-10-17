@@ -8,3 +8,4 @@
 extern Identity gIdentity;
 extern std::atomic<int> gWsClients;
 extern std::atomic<int> gPeerCount;
+extern std::atomic<bool> gPeerRefreshNow; // set when a join named a product we have not heard: look again now

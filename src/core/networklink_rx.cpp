@@ -139,6 +139,13 @@ void NetworkLinkRx::session_closed(int sid) {
   if (it == sessions_.end()) return;
   sessions_.erase(it);
   if (cur_.sid == sid) {
+    if (cur_.playing) {
+      // A source may close the control session when it pauses (an M3 does) and the stream can come
+      // back; beo's listener only stops on an explicit Disconnect. Stay joined: the platform layer
+      // ends a stream that stays silent, and a Disconnect or leave still ends it at once.
+      env_.log("session to the source closed; staying joined");
+      return;
+    }
     env_.log("session to the source closed");
     end_current(false);
   }

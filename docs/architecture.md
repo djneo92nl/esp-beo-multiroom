@@ -79,6 +79,9 @@ frames (`audio::RatePolicy`) -> gain (volume, mute and fades step towards their 
 - **Mute marker:** the 16-byte FPS marker's counter parity sets `gSourceMuted` (odd = mute): a guess from beo's
   comments, not yet tested against a real source.
 
+- **Session closed by the source:** a source may close the control session when it pauses; the listener stays
+  joined (beo only stops on an explicit `Disconnect`), and a stream silent for 30 s ends itself.
+
 The PTS in the header is ignored: no PTP, no multiroom sync.
 
 ## Memory (the hard constraint)

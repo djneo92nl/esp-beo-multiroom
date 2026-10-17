@@ -1298,3 +1298,21 @@ inference, and it is wrong.
 - **Spotify** does not appear as a linkable source for the ESP32 (expected, `linkable: false` in the API capture).
 - **Still untested:** the mute marker (parity guess), fades on rejoin and after a Wi-Fi gap against a real source,
   volume curve against the source's own volume, a longer run (heap dipped to 16-17 KB under a weak link).
+
+### 14.4 Join and pause behaviour (measured on hardware, 2026-10-17)
+
+- **Joining needed two tries.** Logged as `nothing by that jid has been heard`. Two causes: (1) after boot the M3 is
+  not in the peer list until an mDNS pass finds it (heard 18 s after boot in one run, not yet at 24 s in another);
+  (2) a later pass returned the M3 without an IPv4 address and the merge overwrote the good address with an empty one.
+  Fixed: a merge keeps the old address, and a join that names an unknown product asks for a new discovery pass at
+  once (instead of waiting up to 10 s). The log now shows every peer heard or forgotten, and who is known when a
+  join fails. Verified: a join worked first try 14 s after the first peer was heard; one retry was still needed
+  when the join came 24 s after boot.
+- **Pausing the M3 closes the control session from the source's side** (`session to the source closed`, no
+  `Disconnect` stanza). Our listener ended the stream there, so a pause dropped the ESP32. beo's listener stops only
+  on an explicit `Disconnect`. Now: a session closed while playing logs `staying joined`; a stream that then stays
+  silent for 30 s ends itself (`no audio for 30 s: leaving`). Verified (owner): pause the M3, play again, the ESP32
+  stays joined and the audio comes back.
+- **Muting the M3 alone does not mute the ESP32** (owner), muting the ESP32 or both from the app does: that is the app's
+  volume level going to 0 (`volume 0/100`), not the FPS marker. The marker counter has been seen as 0, 1 and 2
+  (`odd = mute` is still only a guess; an odd counter was seen once, 0.5 s before the next one).

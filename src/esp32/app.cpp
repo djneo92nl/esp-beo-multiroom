@@ -26,6 +26,7 @@
 Identity gIdentity;
 std::atomic<int> gWsClients{0};
 std::atomic<int> gPeerCount{0};
+std::atomic<bool> gPeerRefreshNow{false};
 
 namespace {
 
@@ -101,11 +102,23 @@ public:
     for (Peer &p : found) {
       bool known = false;
       for (Seen &k : seen_)
-        if (k.peer.jid == p.jid) { k.peer = p; k.at = now; known = true; }
-      if (!known) seen_.push_back({p, now});
+        if (k.peer.jid == p.jid) {
+          std::string keep = k.peer.ip;
+          k.peer = p;
+          if (k.peer.ip.empty()) k.peer.ip = keep; // a pass that missed the A record must not erase a good address
+          k.at = now;
+          known = true;
+        }
+      if (!known) {
+        seen_.push_back({p, now});
+        log_i("mozart: peer heard: %s at %s", p.jid.substr(0, p.jid.find('@')).c_str(), p.ip.c_str());
+      }
     }
     for (size_t i = 0; i < seen_.size();)
-      if (now - seen_[i].at > 20u * 60u * 1000u) seen_.erase(seen_.begin() + i);
+      if (now - seen_[i].at > 20u * 60u * 1000u) {
+        log_i("mozart: peer forgotten (not heard for 20 minutes): %s", seen_[i].peer.jid.c_str());
+        seen_.erase(seen_.begin() + i);
+      }
       else i++;
     peers_.clear();
     for (Seen &k : seen_) peers_.push_back(k.peer);
@@ -361,7 +374,9 @@ void peerTask(void *) {
   for (;;) {
     // Not while a stream runs: a query's results and sockets cost heap the stream needs.
     if (mdnsUp && !gLinkStats.listening) net.refresh();
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    // A join that named an unknown product asks for another pass at once, so the app's retry finds it.
+    for (int i = 0; i < 20 && !gPeerRefreshNow.load(); i++) vTaskDelay(pdMS_TO_TICKS(500));
+    gPeerRefreshNow = false;
   }
 }
 

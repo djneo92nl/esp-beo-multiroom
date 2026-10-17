@@ -39,10 +39,10 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 
 ## TODO, in order
 
-1. **Finish Phase 3.** Done and measured: rate adjustment (findings 14.3), fades built. Still to test with the
-   owner, each with `tools/serial_log.py` running: the mute marker from the app (odd counter = mute is a guess);
-   leave and rejoin (`beolink/leave`, `state/standby`): no stale session or FPS task, no click; a Wi-Fi gap (fade,
-   buffer refills); the volume curve (v^1.5; the amp is loud at 20 %; the test tone may ignore the volume setting);
+1. **Finish Phase 3.** Done and measured: rate adjustment (findings 14.3), fades built. Verified with the owner
+   (findings 14.4): app volume/mute, leave and rejoin, pausing and resuming the M3 (stays joined), a Wi-Fi gap (no
+   cracks). Still open: what the FPS marker means (odd = mute is only a guess, remove it if no source needs it);
+   `state/standby` from the app; a long run; the volume curve (v^1.5; the amp is loud at 20 %; the test tone may ignore the volume setting);
    a long run. The test board's Wi-Fi is poor (-78 dBm at 2 m): try another board, antenna or supply.
 2. **Hear more:** a record on the M5's line-in (plain PCM, measured silent only), 48 kHz vs 44.1 kHz sources.
 3. **Reliability.** Heap is thin (~45-65 KB free during a stream). Candidates: move `link.cpp` I2S behind
