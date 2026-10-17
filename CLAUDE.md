@@ -34,7 +34,8 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 | 3 polish | **partly done**: smoothed drift correction, gain ramp, fades on underrun/flush, marker mute are built and host-tested; on hardware the 150 s test dropped corrections 1352 -> 762, underruns 77 -> 13, but the fill still averages above target (correction rate too low). Mute marker (odd counter = mute is a guess), rejoin and Wi-Fi-gap fades are untested |
 | hearing it | **verified by ear (2026-10-17)**: a MAX98357A on BCLK 26 / LRC 25 / DIN 22 plays the test tone and B&O Radio from the M3/M5; occasional break-ups (underruns, see findings 14.1). Very loud: the amp's default gain. The PCM5102 board stays unsoldered |
 | Beoplay M3 B&O Radio | **streams 44.1 kHz PCM** to the board (beo's native format), ~2 % loss at -75..-85 dBm |
-| line-in of the M5 / Moment | **encrypted, out of reach (measured 2026-10-17)**: with the line-in silent (owner confirmed with an M3) the payload is still full-scale noise (entropy 7.978, 0.5 % zero bytes over 200 datagrams), and the M5 as a listener logs `Encryption ON` and never `OFF`, unlike B&O Radio. **Decrypting is out of scope for this assistant**; the project stops here. Findings 14 |
+| line-in of the Moment | **encrypted, out of reach (measured 2026-10-17)**: with the line-in silent (owner confirmed with an M3) the payload is still full-scale noise (entropy 7.978, 0.5 % zero bytes over 200 datagrams), and the M5 as a listener logs `Encryption ON` and never `OFF`, unlike B&O Radio. **Decrypting is out of scope for this assistant**. Findings 14 |
+| line-in of the M3 and the M5 | **plain 0x1234 PCM (measured 2026-10-17, silent input)**: joined from the app, `bad 0`, peak 1 / rms 0. Not heard with music yet. Findings 14.2 |
 
 ## TODO, in order
 

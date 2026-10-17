@@ -1268,3 +1268,17 @@ stream (magic 0x4321) is encrypted. Nothing here decodes it, and this project do
   drift corrections per second, fill 120 to 192 ms. The break-ups match the underruns, not loss. The fill averages
   around 7.7 blocks against a target of 4: the correction rate (one frame per 8 blocks at most) is too low.
 - The test board's Wi-Fi stays at -75 to -78 dBm at 2 metres in line of sight (owner): a board problem.
+
+### 14.2 Correction: the M3's and the M5's line-ins are plain PCM (measured, 2026-10-17)
+
+Sections 11 and 13 and the first version of the README and CLAUDE.md state generalised the Moment's result to "the
+line-in of the M5 and Moment". Only the Moment was ever measured; the M5 was assumed to behave the same. That was an
+inference, and it is wrong.
+
+- **Beoplay M3, line-in (silent), joined by the ESP32 from the app:** `Connect accepted`, `listening to linein`, all
+  datagrams recognised as `0x1234` (`bad 0`), signal peak 1 / rms 0 of 32767, i.e. plain PCM of silence.
+- **Beoplay M5, line-in (silent), same:** same result (`bad 0`, peak 1, rms 0, 2 of about 470 datagrams lost). The
+  owner's record player is on this M5, so the use case is possible on this firmware. Not heard yet: both runs were
+  silent, and the board's Wi-Fi (-84 to -87 dBm) caused loss and underruns on the M3 run.
+- So of the products tested only the Beosound Moment (2015) sends the encrypted 0x4321 stream on its line-in. The
+  developer's M3 and Edge were right to send plain 0x1234.
