@@ -1,8 +1,10 @@
 // Unit checks for the FPS parser and the jitter buffer (no platform headers).
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <vector>
 
+#include "../../src/core/audio_control.h"
 #include "../../src/core/jitter_buffer.h"
 
 static size_t budget = 1u << 30;
@@ -49,5 +51,41 @@ int main() {
   JitterBuffer small(20, 0.5f, +[]() -> size_t { static size_t left = 5 * fps::kPayloadBytes; size_t r = left; left = left >= fps::kPayloadBytes ? left - fps::kPayloadBytes : 0; return r; }, 0);
   count = small.capacity();
   assert(count == 5);
-  printf("jitter/parser checks passed\n");
+  // drift policy: acts on the smoothed fill, never on a burst, and not more often than min_gap
+  audio::DriftPolicy dp;
+  dp.target = 3; dp.band = 0.75f; dp.min_gap = 8;
+  int acts = 0;
+  for (int i = 0; i < 400; i++) acts += dp.decide(3) != 0;
+  assert(acts == 0);                                      // on target: never
+  acts = 0;
+  for (int i = 0; i < 400; i++) acts += dp.decide(i % 2 ? 6 : 0) != 0; // a swing of +-3 around 3
+  assert(acts == 0);                                      // bursts average out: no correction
+  dp = audio::DriftPolicy(); dp.target = 3;
+  int minus = 0, plus = 0;
+  for (int i = 0; i < 400; i++) { int d = dp.decide(5); minus += d < 0; plus += d > 0; }
+  assert(minus > 20 && plus == 0 && minus <= 400 / 8 + 1); // persistently high: shorten, rate limited
+  dp = audio::DriftPolicy(); dp.target = 3;
+  minus = plus = 0;
+  for (int i = 0; i < 400; i++) { int d = dp.decide(1); minus += d < 0; plus += d > 0; }
+  assert(plus > 20 && minus == 0);                        // persistently low: stretch
+
+  // gain stepping
+  assert(audio::step_gain(0.f, 1.f, 0.1f) > 0.099f && audio::step_gain(0.f, 1.f, 0.1f) < 0.101f);
+  assert(audio::step_gain(0.95f, 1.f, 0.1f) == 1.f);
+  assert(audio::step_gain(1.f, 0.f, 0.25f) == 0.75f);
+
+  // block adjustment: lengths, and a ramp stays a ramp (no step at the edit)
+  const size_t N = 1062;
+  std::vector<int16_t> in(N * 2), out(N * 2 + 2);
+  for (size_t i = 0; i < N; i++) { in[2 * i] = (int16_t)(i * 10); in[2 * i + 1] = (int16_t)(-(int)i * 10); }
+  assert(audio::adjust_block(in.data(), N, 0, out.data()) == N);
+  size_t longer = audio::adjust_block(in.data(), N, +1, out.data());
+  assert(longer == N + 1);
+  for (size_t f = 1; f < longer; f++) assert(abs(out[2 * f] - out[2 * (f - 1)]) <= 10); // smooth
+  size_t shorter = audio::adjust_block(in.data(), N, -1, out.data());
+  assert(shorter == N - 1);
+  for (size_t f = 1; f < shorter; f++) assert(abs(out[2 * f] - out[2 * (f - 1)]) <= 15);
+  assert(out[0] == in[0] && out[2 * (shorter - 1)] == in[2 * (N - 1)]); // ends unchanged
+
+  printf("jitter/parser/audio-control checks passed\n");
 }

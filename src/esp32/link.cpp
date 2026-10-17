@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "../core/audio_control.h"
 #include "../core/fps.h"
 #include "../core/jitter_buffer.h"
 #include "../core/networklink_rx.h"
@@ -44,6 +45,8 @@ JitterBuffer *jb = nullptr;
 std::atomic<bool> fpsRun{false};
 std::atomic<bool> fpsTaskAlive{false};
 std::atomic<uint32_t> wantRate{44100};
+std::atomic<bool> gFlush{false};      // leaving: fade out and drop what is queued
+std::atomic<bool> gSourceMuted{false}; // the source's pause/mute marker
 std::atomic<uint32_t> toneUntilMs{0}; // test tone: 1 kHz, bypasses the stream and the volume
 std::atomic<uint32_t> lastBeatMs{0};
 std::string sourceJid;
@@ -92,12 +95,20 @@ bool i2sEnsure(uint32_t rate) {
   return true;
 }
 
-// One block of the stream is ~24 ms: volume is applied as a linear ramp across the block so a
-// step in the slider is never a step in the signal.
+// The audio task. One block of the stream is 22 to 24 ms. Per block:
+//  - drift: if the buffer holds more or less than its target, the block is made one frame
+//    shorter or longer (interpolated), at most every 4th block (audio::DriftPolicy);
+//  - gain: volume, the source's pause/play mute and fades all move the gain towards its target by at
+//    most 0.12 per block, ramped across the block, so nothing steps;
+//  - the end of the stream (underrun, Wi-Fi gap, leaving) fades the last samples to zero and the next
+//    start fades in from zero; leaving also drops what is still queued.
 void audioTask(void *) {
-  static int16_t out[fps::kFramesPerDatagram * 2];
-  float gain = 0.f;
-  float phase = 0.f;
+  static int16_t out[fps::kFramesPerDatagram * 2 + 2];
+  static int16_t tmp[fps::kFramesPerDatagram * 2 + 2];
+  float gain = 0.f, phase = 0.f;
+  int16_t lastL = 0, lastR = 0;
+  bool wasPlaying = false;
+  audio::DriftPolicy drift;
   for (;;) {
     uint32_t until = toneUntilMs.load();
     if (until && (int32_t)(until - millis()) > 0) {
@@ -112,33 +123,62 @@ void audioTask(void *) {
         out[2 * i + 1] = v;
       }
       size_t w = 0;
-      i2s_channel_write(tx, out, sizeof out, &w, pdMS_TO_TICKS(200));
+      i2s_channel_write(tx, out, fps::kFramesPerDatagram * 4, &w, pdMS_TO_TICKS(200));
       continue;
     }
     uint32_t want = wantRate.load();
-    bool have = false;
+    size_t frames = 0;
+    bool have = false, fadeOnly = false;
     {
       std::lock_guard<std::mutex> g(jbLock);
       if (jb) {
+        bool flush = gFlush.exchange(false);
         const uint8_t *b = jb->front();
         if (b) {
           float max = (float)(gMax.load() > 0 ? gMax.load() : 100);
           float v = gMuted.load() ? 0.f : (float)gLevel.load() / max;
-          float target = v * sqrtf(v); // v^1.5: between linear and squared (squared at the default level was -21 dB, too quiet)
-          const int16_t *in = reinterpret_cast<const int16_t *>(b);
-          const size_t n = fps::kFramesPerDatagram;
-          float step = (target - gain) / (float)n;
-          float g0 = gain;
-          for (size_t i = 0; i < n; i++) {
-            g0 += step;
-            out[2 * i] = (int16_t)((float)in[2 * i] * g0);
-            out[2 * i + 1] = (int16_t)((float)in[2 * i + 1] * g0);
+          float target = gSourceMuted.load() ? 0.f : v * sqrtf(v); // v^1.5 (squared was -21 dB at the default: too quiet)
+          if (flush) target = 0.f;
+          drift.target = (float)jb->prefill();
+          int dir = drift.decide(jb->level());
+          if (dir != 0) {
+            gLinkStats.corrections++;
+            if (gLinkStats.corrections % 20 == 1)
+              log_i("%s: drift correction %s (average fill %.1f, target %.0f blocks), %u so far", kTag, dir > 0 ? "+1 frame" : "-1 frame",
+                    drift.avg, drift.target, (unsigned)gLinkStats.corrections.load());
           }
-          gain = target;
+          frames = audio::adjust_block(reinterpret_cast<const int16_t *>(b), fps::kFramesPerDatagram, dir, tmp);
+          float g1 = flush ? 0.f : audio::step_gain(gain, target, 0.12f);
+          float g0 = gain, step = (g1 - g0) / (float)frames;
+          for (size_t i = 0; i < frames; i++) {
+            g0 += step;
+            out[2 * i] = (int16_t)((float)tmp[2 * i] * g0);
+            out[2 * i + 1] = (int16_t)((float)tmp[2 * i + 1] * g0);
+          }
+          gain = g1;
           jb->pop();
+          if (flush) jb->drain();
           gLinkStats.fill_ms = (int)(jb->level() * 1062 * 1000 / (i2sRate ? i2sRate : 44100));
           gLinkStats.underruns = jb->stats().underruns;
           have = true;
+        } else {
+          if (flush) jb->drain();
+          gLinkStats.underruns = jb->stats().underruns;
+          if (wasPlaying) {
+            // The stream ran dry (Wi-Fi gap, source stopped): ramp the last sample to zero so there
+            // is no click, and start the next one from silence.
+            frames = 192;
+            for (size_t i = 0; i < frames; i++) {
+              float k = 1.f - (float)(i + 1) / (float)frames;
+              out[2 * i] = (int16_t)((float)lastL * k);
+              out[2 * i + 1] = (int16_t)((float)lastR * k);
+            }
+            gain = 0.f;
+            drift.restart();
+            wasPlaying = false;
+            have = true;
+            fadeOnly = true;
+          }
         }
       }
     }
@@ -150,8 +190,13 @@ void audioTask(void *) {
       vTaskDelay(pdMS_TO_TICKS(500));
       continue;
     }
+    if (!fadeOnly) {
+      wasPlaying = true;
+      lastL = out[2 * (frames - 1)];
+      lastR = out[2 * (frames - 1) + 1];
+    }
     size_t written = 0;
-    i2s_channel_write(tx, out, sizeof out, &written, pdMS_TO_TICKS(200));
+    i2s_channel_write(tx, out, frames * 4, &written, pdMS_TO_TICKS(200));
   }
 }
 
@@ -228,7 +273,11 @@ void fpsTask(void *) {
             have_prev = true;
             if (p.kind == fps::Kind::Marker) {
               gLinkStats.markers++;
-              log_i("%s: marker #%u (source pause/play)", kTag, p.marker_counter);
+              // beo: counter 2 opens the stream, then +1 per event: odd = MuteAllSinks (pause), even =
+              // unmute (play). That is beo's reading of its own sender; not yet seen from a real pause.
+              bool mute = (p.marker_counter & 1) != 0;
+              gSourceMuted = mute;
+              log_i("%s: marker #%u -> source %s", kTag, p.marker_counter, mute ? "paused: muting" : "playing: unmuting");
             } else {
               if (p.format != fmt) {
                 fmt = p.format;
@@ -295,9 +344,9 @@ void fpsTask(void *) {
             nsamp ? (int)sqrtf((float)((double)sumsq / (double)nsamp)) : 0, dn ? dmin / 10 : 0, dn ? dmin % 10 : 0,
             dn ? (dsum / dn) / 10 : 0, dn ? (dsum / dn) % 10 : 0, dmax / 10, dmax % 10);
       peak = 0; sumsq = 0; nsamp = 0; dmin = 0xFFFFFFFF; dmax = 0; dn = 0; dsum = 0;
-      log_i("%s: fill %d ms, rx %u, lost %u, underruns %u, overruns %u, markers %u, bad %u, heap %u (max block %u)", kTag,
+      log_i("%s: fill %d ms, rx %u, lost %u, underruns %u, overruns %u, corrections %u, markers %u, bad %u, heap %u (max block %u)", kTag,
             gLinkStats.fill_ms.load(), (unsigned)gLinkStats.received.load(), (unsigned)gLinkStats.lost.load(),
-            (unsigned)gLinkStats.underruns.load(), (unsigned)gLinkStats.overruns.load(), (unsigned)gLinkStats.markers.load(), (unsigned)gLinkStats.bad.load(),
+            (unsigned)gLinkStats.underruns.load(), (unsigned)gLinkStats.overruns.load(), (unsigned)gLinkStats.corrections.load(), (unsigned)gLinkStats.markers.load(), (unsigned)gLinkStats.bad.load(),
             (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
   }
@@ -318,7 +367,7 @@ void allocateBuffer() {
   // Measured (findings.md 4.3): the stream's own plumbing (Wi-Fi RX buffers, IP reassembly, the
   // UDP queue, I2S DMA, two task stacks) takes ~55 KB on top of an idle system, and a
   // session's stanza handling a little more. 36 KB left over ran out of memory mid-handshake.
-  constexpr size_t kReserve = 100 * 1024;
+  constexpr size_t kReserve = 88 * 1024;
   std::lock_guard<std::mutex> g(jbLock);
   jb = new JitterBuffer(want, 0.5f, freeHeap, kReserve);
   gLinkStats.buffer_ms = (int)(jb->capacity() * 1062 * 1000 / 44100);
@@ -339,6 +388,8 @@ bool fpsOpen() {
   gLinkStats.received = gLinkStats.lost = gLinkStats.underruns = gLinkStats.overruns = 0;
   gLinkStats.markers = gLinkStats.corrections = gLinkStats.bad = 0;
   badLogged = 0;
+  gSourceMuted = false;
+  gFlush = false;
   fpsRun = true;
   xTaskCreatePinnedToCore(fpsTask, "fps", 4096, nullptr, 6, nullptr, 0);
   gLinkStats.listening = true;
@@ -347,6 +398,7 @@ bool fpsOpen() {
 
 void fpsClose() {
   if (!fpsRun) return;
+  gFlush = true; // fade out what is queued instead of letting it play on or cutting it
   fpsRun = false;
   for (int i = 0; i < 40 && fpsTaskAlive; i++) vTaskDelay(pdMS_TO_TICKS(25));
   gLinkStats.listening = false;

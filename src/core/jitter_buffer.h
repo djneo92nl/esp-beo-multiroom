@@ -78,6 +78,13 @@ public:
     playing_ = false;
     stats_ = Stats();
   }
+  // Throw away what is queued, keep the counters and the prefill rule (a stream that is being
+  // stopped fades out first, then drains).
+  void drain() {
+    r_.store(w_.load());
+    playing_ = false;
+  }
+  size_t prefill() const { return prefill_; }
   bool playing() const { return playing_; }
   const Stats &stats() const { return stats_; }
 
