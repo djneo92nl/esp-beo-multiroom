@@ -18,7 +18,7 @@ NetworkLink, BeoLink are Bang & Olufsen trademarks, used only to name protocols.
 | NetworkLink listener handshake | byte-identical to beo's wire code (**host**); works against beo's Python source and a **real Beoplay M5** (B&O Radio) (**hardware**) |
 | Receiving a real stream (M5 B&O Radio: 48 kHz PCM, 0 loss on a steady link) | **verified on hardware** |
 | Hearing it | **verified by ear (MAX98357A)**: test tone and B&O Radio from an M3/M5 play, with occasional break-ups |
-| Drift correction, mute fades, clean rejoin (Phase 3) | drift correction and fades **built, host-tested, partly measured** (fill still above target); mute marker and rejoin untested |
+| Drift correction, mute fades, clean rejoin (Phase 3) | rate adjustment and fades **built, host-tested, measured on hardware** (a DLNA/FLAC stream through an M3 plays with a little chop); mute marker and rejoin untested |
 | Line-in of a Beosound Moment | **encrypted, not supported** (measured: full-scale noise on a silent input, receiver logs `Encryption ON`; findings section 14) |
 | Line-in of a Beoplay M3 / M5 | **joins and streams plain PCM** (measured with a silent input, `0x1234`); not yet heard with music |
 | Enrolment in the network's shared configuration | done once on the author's network; the leader's reply is not read (see CLAUDE.md) |
