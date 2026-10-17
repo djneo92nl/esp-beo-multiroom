@@ -5,6 +5,7 @@
 // longer or shorter (an interpolated frame is inserted or two neighbours merged), at most once
 // every few blocks, so the pitch moves by at most a few hundred ppm and never audibly.
 #pragma once
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -71,6 +72,56 @@ inline size_t adjust_block(const int16_t *in, size_t frames, int dir, int16_t *o
     }
   }
   return o;
+}
+
+// The source (a file played through DLNA on an M3, for one) can run ahead of our clock by about a
+// percent for minutes, which one frame every few blocks cannot absorb. This proportional policy
+// resamples every block by a few frames, in proportion to how far the smoothed fill is from the
+// target: a fill above target shortens the blocks (we consume faster), below it lengthens them.
+// 6 frames per block of error and a limit of 30 frames per 1062 move the pitch by at most 2.8 %.
+struct RatePolicy {
+  float target = 4.f;         // blocks the buffer should hold
+  float deadband = 0.5f;      // no change while the average is this close to the target
+  float frames_per_block = 6.f; // extra or fewer frames per block, per block of fill error
+  int max_delta = 30;
+  float smoothing = 1.f / 32.f; // the average spans ~32 blocks, about 0.75 s
+  float avg = -1.f;
+
+  // Returns the number of frames to add to this block (negative: remove).
+  int decide(size_t level) {
+    if (avg < 0.f) avg = (float)level;
+    avg += ((float)level - avg) * smoothing;
+    float e = avg - target;
+    if (std::fabs(e) < deadband) return 0;
+    e -= (e > 0.f ? deadband : -deadband);
+    int d = (int)std::lround(-e * frames_per_block);
+    if (d > max_delta) d = max_delta;
+    if (d < -max_delta) d = -max_delta;
+    return d;
+  }
+  void restart() { avg = -1.f; }
+};
+
+// Linear-interpolating resample of one block of interleaved S16 stereo to out_frames frames. The first
+// and last frame are kept, so consecutive blocks join without a step. `out` needs room for out_frames.
+inline void resample_block(const int16_t *in, size_t frames, size_t out_frames, int16_t *out) {
+  if (out_frames == frames || frames < 2 || out_frames < 2) {
+    size_t n = out_frames < frames ? out_frames : frames;
+    for (size_t i = 0; i < n * 2; i++) out[i] = in[i];
+    for (size_t i = n; i < out_frames; i++) { out[2 * i] = in[2 * (frames - 1)]; out[2 * i + 1] = in[2 * (frames - 1) + 1]; }
+    return;
+  }
+  const uint64_t step = (((uint64_t)(frames - 1)) << 16) / (uint64_t)(out_frames - 1);
+  for (size_t i = 0; i < out_frames; i++) {
+    uint64_t pos = step * i;
+    size_t idx = (size_t)(pos >> 16);
+    uint32_t frac = (uint32_t)(pos & 0xffff);
+    if (idx >= frames - 1) { idx = frames - 2; frac = 0x10000; }
+    for (int c = 0; c < 2; c++) {
+      int a = in[2 * idx + c], b = in[2 * (idx + 1) + c];
+      out[2 * i + c] = (int16_t)(a + (((int64_t)(b - a) * frac) >> 16));
+    }
+  }
 }
 
 } // namespace audio

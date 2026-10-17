@@ -96,19 +96,20 @@ bool i2sEnsure(uint32_t rate) {
 }
 
 // The audio task. One block of the stream is 22 to 24 ms. Per block:
-//  - drift: if the buffer holds more or less than its target, the block is made one frame
-//    shorter or longer (interpolated), at most every 4th block (audio::DriftPolicy);
+//  - rate: the block is resampled to a few frames more or fewer, in proportion to how far the
+//    smoothed buffer fill is from its target (audio::RatePolicy), so a source running a percent
+//    fast is followed instead of overrunning;
 //  - gain: volume, the source's pause/play mute and fades all move the gain towards its target by at
 //    most 0.12 per block, ramped across the block, so nothing steps;
 //  - the end of the stream (underrun, Wi-Fi gap, leaving) fades the last samples to zero and the next
 //    start fades in from zero; leaving also drops what is still queued.
 void audioTask(void *) {
-  static int16_t out[fps::kFramesPerDatagram * 2 + 2];
-  static int16_t tmp[fps::kFramesPerDatagram * 2 + 2];
+  static int16_t out[(fps::kFramesPerDatagram + 40) * 2];
+  static int16_t tmp[(fps::kFramesPerDatagram + 40) * 2];
   float gain = 0.f, phase = 0.f;
   int16_t lastL = 0, lastR = 0;
   bool wasPlaying = false;
-  audio::DriftPolicy drift;
+  audio::RatePolicy drift;
   for (;;) {
     uint32_t until = toneUntilMs.load();
     if (until && (int32_t)(until - millis()) > 0) {
@@ -140,14 +141,15 @@ void audioTask(void *) {
           float target = gSourceMuted.load() ? 0.f : v * sqrtf(v); // v^1.5 (squared was -21 dB at the default: too quiet)
           if (flush) target = 0.f;
           drift.target = (float)jb->prefill();
-          int dir = drift.decide(jb->level());
-          if (dir != 0) {
+          int delta = drift.decide(jb->level());
+          if (delta != 0) {
             gLinkStats.corrections++;
-            if (gLinkStats.corrections % 20 == 1)
-              log_i("%s: drift correction %s (average fill %.1f, target %.0f blocks), %u so far", kTag, dir > 0 ? "+1 frame" : "-1 frame",
+            if (gLinkStats.corrections % 200 == 1)
+              log_i("%s: rate adjust %+d frames per block (average fill %.1f, target %.0f blocks), %u blocks adjusted so far", kTag, delta,
                     drift.avg, drift.target, (unsigned)gLinkStats.corrections.load());
           }
-          frames = audio::adjust_block(reinterpret_cast<const int16_t *>(b), fps::kFramesPerDatagram, dir, tmp);
+          frames = fps::kFramesPerDatagram + delta;
+          audio::resample_block(reinterpret_cast<const int16_t *>(b), fps::kFramesPerDatagram, frames, tmp);
           float g1 = flush ? 0.f : audio::step_gain(gain, target, 0.12f);
           float g0 = gain, step = (g1 - g0) / (float)frames;
           for (size_t i = 0; i < frames; i++) {

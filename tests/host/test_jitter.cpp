@@ -87,5 +87,36 @@ int main() {
   for (size_t f = 1; f < shorter; f++) assert(abs(out[2 * f] - out[2 * (f - 1)]) <= 15);
   assert(out[0] == in[0] && out[2 * (shorter - 1)] == in[2 * (N - 1)]); // ends unchanged
 
+  // rate policy: proportional, deadband, clamped; and a simulated source 1.1 % fast settles near the target
+  audio::RatePolicy rp;
+  for (int i = 0; i < 200; i++) assert(rp.decide(4) == 0);        // on target: untouched
+  rp = audio::RatePolicy(); rp.decide(4); for (int i = 0; i < 200; i++) assert(rp.decide(i % 2 ? 6 : 2) == 0); // burst swings average out
+  rp = audio::RatePolicy(); int dl = 0; for (int i = 0; i < 300; i++) dl = rp.decide(7);
+  assert(dl < 0 && dl >= -rp.max_delta);                          // high: shorter blocks, clamped
+  rp = audio::RatePolicy(); for (int i = 0; i < 300; i++) dl = rp.decide(1);
+  assert(dl > 0 && dl <= rp.max_delta);                           // low: longer blocks
+  {
+    audio::RatePolicy r2; double fill = 4.0; const double F = 1062, src = 1.011; // source blocks per played block
+    int worst = 0;
+    for (int i = 0; i < 6000; i++) {
+      int d = r2.decide((size_t)(fill + 0.5));
+      double played_per_block = (F + d) / F;   // output time per consumed block, in block times
+      fill += src * played_per_block - 1.0;    // arrivals during it minus the one consumed
+      if (fill < 0) fill = 0; if (fill > 9) fill = 9;
+      if (i > 3000 && (int)(fill + 0.5) > worst) worst = (int)(fill + 0.5);
+    }
+    assert(fill > 2.0 && fill < 8.0 && worst < 9);                // no overrun after settling
+  }
+  // resample: lengths, ends kept, a ramp stays a ramp, silence stays silence
+  for (int d : {-30, -7, 5, 30}) {
+    std::vector<int16_t> o2((N + 40) * 2);
+    audio::resample_block(in.data(), N, (size_t)((int)N + d), o2.data());
+    size_t M = (size_t)((int)N + d);
+    assert(o2[0] == in[0] && abs(o2[2 * (M - 1)] - in[2 * (N - 1)]) <= 10);
+    for (size_t f = 1; f < M; f++) assert(abs(o2[2 * f] - o2[2 * (f - 1)]) <= 12);
+  }
+  { std::vector<int16_t> z(N * 2, 0), o3((N + 40) * 2, 1); audio::resample_block(z.data(), N, N - 11, o3.data());
+    for (size_t i = 0; i < (N - 11) * 2; i++) assert(o3[i] == 0); }
+
   printf("jitter/parser/audio-control checks passed\n");
 }
