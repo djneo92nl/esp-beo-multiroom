@@ -31,7 +31,7 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 | 0 analysis | done: `docs/esp32-port/findings.md` |
 | 1 appear in the app | **verified on hardware**: discovered, set up, volume works from the app, WebSocket snapshot works. 36/36 routes identical to beo's recorded answers (host) |
 | 2 receive and play | **verified against a real source on the unprotected path**: Beoplay M5 B&O Radio (`NONE`) joins and streams 48 kHz PCM, 0 loss on a steady link. Handshake byte-identical to beo (host). **Audio was never listened to (no DAC attached)** |
-| 3 polish | **partly done**: smoothed drift correction, gain ramp, fades on underrun/flush, marker mute are built and host-tested; on hardware the 150 s test dropped corrections 1352 -> 762, underruns 77 -> 13, but the fill still averages above target (correction rate too low). Mute marker (odd counter = mute is a guess), rejoin and Wi-Fi-gap fades are untested |
+| 3 polish | **partly done**: proportional rate adjustment (resampling by a few frames per block), gain ramp and fades are built and host-tested. Measured on hardware with a DLNA/FLAC stream through an M3: overruns about 78 -> 10 per minute, underruns 14 -> 5; owner: a lot better, a little chop. Mute marker (odd counter = mute is a guess), rejoin and Wi-Fi-gap fades are untested |
 | hearing it | **verified by ear (2026-10-17)**: a MAX98357A on BCLK 26 / LRC 25 / DIN 22 plays the test tone and B&O Radio from the M3/M5; occasional break-ups (underruns, see findings 14.1). Very loud: the amp's default gain. The PCM5102 board stays unsoldered |
 | Beoplay M3 B&O Radio | **streams 44.1 kHz PCM** to the board (beo's native format), ~2 % loss at -75..-85 dBm |
 | line-in of the Moment | **encrypted, out of reach (measured 2026-10-17)**: with the line-in silent (owner confirmed with an M3) the payload is still full-scale noise (entropy 7.978, 0.5 % zero bytes over 200 datagrams), and the M5 as a listener logs `Encryption ON` and never `OFF`, unlike B&O Radio. **Decrypting is out of scope for this assistant**. Findings 14 |
@@ -39,15 +39,12 @@ this repo). Read first: `README.md`, `docs/architecture.md`, `docs/esp32-port/fi
 
 ## TODO, in order
 
-1. **Finish Phase 3.** Heard and measured so far: see the State table and findings 14.1.
-   - drift: let the correction rate scale with the distance from target (up to one frame per block); the fill
-     averages 7.7 blocks against a target of 4, so overruns and underruns persist (3-4 underruns per minute);
-   - mute handling: markers set `gSourceMuted` by counter parity (odd = mute is a guess from beo's comments);
-     test it from the app, plus fades at stream start/stop, on rejoin and after a Wi-Fi gap;
-   - check `leave`/rejoin sequences from the app (`beolink/leave`, `state/standby`) leave no stale session or FPS task;
-   - volume: Mozart level -> gain curve v^1.5 is a guess; the amp (MAX98357A) is loud at 20 %; we never push
-     VOLUME notifications to the source. Check whether the test tone ignores the volume setting.
-   - the test board's Wi-Fi is poor (-77 dBm at 2 m): try another board, antenna or supply.
+1. **Finish Phase 3.** Done and measured: rate adjustment (findings 14.3), fades built. Still to test with the
+   owner, each with `tools/serial_log.py` running: the mute marker from the app (odd counter = mute is a guess);
+   leave and rejoin (`beolink/leave`, `state/standby`): no stale session or FPS task, no click; a Wi-Fi gap (fade,
+   buffer refills); the volume curve (v^1.5; the amp is loud at 20 %; the test tone may ignore the volume setting);
+   a long run. The test board's Wi-Fi is poor (-78 dBm at 2 m): try another board, antenna or supply.
+2. **Hear more:** a record on the M5's line-in (plain PCM, measured silent only), 48 kHz vs 44.1 kHz sources.
 3. **Reliability.** Heap is thin (~45-65 KB free during a stream). Candidates: move `link.cpp` I2S behind
    `AudioSink`; fewer/lower stacks (log high-water marks first: `uxTaskGetStackHighWaterMark`); consider
    disabling Wi-Fi AMPDU; fewer httpd instances. Bluetooth is off in `custom_sdkconfig` and must be

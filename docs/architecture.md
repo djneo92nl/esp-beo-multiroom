@@ -62,11 +62,24 @@ A source may also dial us (ConnectRequest); that path is built and tested agains
 ## Audio path
 
 `fps` task (core 0, prio 6): `recvfrom` -> parse -> sequence gap -> `JitterBuffer::push`.
-`audio` task (core 1, prio 7): wait for prefill (half the blocks) -> pop block -> volume ramp across the
-block (squared curve) -> `i2s_channel_write` (blocks on the DMA, which paces playback). I2S is
-reconfigured when the header's format code changes (1 = 44.1 kHz, 2 = 48 kHz). Underrun re-prefills.
+`audio` task (core 1, prio 7): wait for prefill (half the blocks) -> pop block -> resample the block by a few
+frames (`audio::RatePolicy`) -> gain (volume, mute and fades step towards their target) -> `i2s_channel_write`
+(blocks on the DMA, which paces playback). I2S is reconfigured when the header's format code changes (1 = 44.1 kHz,
+2 = 48 kHz).
 
-No drift correction yet (Phase 3). The PTS in the header is ignored: no PTP, no multiroom sync.
+- **Rate adjustment:** the source's clock is never exactly ours (a DLNA/FLAC stream through an M3 ran about
+  0.2-1 % fast for minutes), and Wi-Fi delivers in bursts. The fill is averaged over about 32 blocks (0.75 s)
+  and each block is resampled to 1062 + d frames, d proportional to the fill error (6 frames per block of error,
+  at most 30, dead band 0.5 block). The first and last frame of a block are kept, so blocks join without a step.
+  Measured on hardware: overruns fell from about 78 to about 10 per minute, underruns from about 14 to about 5.
+- **Gain:** volume (Mozart level -> v^1.5), the app's mute and the source's pause marker move the gain towards
+  its target by at most 0.12 per block, ramped across the block.
+- **Fades:** an underrun, a flush (leaving) or a Wi-Fi gap fades the last samples to zero over 192 frames; the
+  next start fades in from silence.
+- **Mute marker:** the 16-byte FPS marker's counter parity sets `gSourceMuted` (odd = mute): a guess from beo's
+  comments, not yet tested against a real source.
+
+The PTS in the header is ignored: no PTP, no multiroom sync.
 
 ## Memory (the hard constraint)
 
@@ -74,7 +87,7 @@ Plain ESP32, no PSRAM. Measured: ~120 KB free with everything up, the stream's o
 Therefore:
 
 - the jitter buffer is allocated **once at boot, block by block**, as many as fit beside a 100 KB reserve
-  (about 6 blocks = 144 ms at 48 kHz); the Status page and the log show what was granted;
+  (9 of 11 blocks = about 216 ms at 44.1 kHz); the Status page and the log show what was granted;
 - large stanzas we do not need (the source's FullStatus) are skipped without buffering;
 - `custom_sdkconfig` in `platformio.ini` trims Wi-Fi buffers, turns Bluetooth off (it must come back for
   A2DP), enables IP reassembly (every FPS datagram is 3 IP fragments), 24 sockets, WebSocket post-handshake

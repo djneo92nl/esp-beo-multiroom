@@ -1282,3 +1282,19 @@ inference, and it is wrong.
   silent, and the board's Wi-Fi (-84 to -87 dBm) caused loss and underruns on the M3 run.
 - So of the products tested only the Beosound Moment (2015) sends the encrypted 0x4321 stream on its line-in. The
   developer's M3 and Edge were right to send plain 0x1234.
+
+### 14.3 Phase 3 on hardware (2026-10-17)
+
+- **First drift policy (counter based) thrashed:** 1352 corrections, 77 underruns and 144 overruns in 150 s against
+  beo's Python source. An EMA-based policy cut that to 762 / 13 / 7 but could only remove one frame per 8 blocks.
+- **DLNA/FLAC through an M3 exposed the limit.** After moving the board (so loss stopped) the log still showed about
+  78 overruns and 14 underruns per minute at 42.0 datagrams per second (about 44.6 k frames/s for a 44.1 kHz stream):
+  the source ran ahead of our clock by far more than one frame per 8 blocks can absorb.
+- **Fix:** `audio::RatePolicy` + `resample_block` (proportional resampling of each block by up to 30 frames). Host
+  test with a simulated 1.1 % fast source settles without overrun. On hardware (65 s sample, owner: "a lot better,
+  little bit chop sometimes"): overruns about 10 per minute, underruns about 5 per minute, fill 48-96 ms, rate
+  adjustment settling at -1 to -8 frames per block. Remaining chop matches Wi-Fi loss (44 of about 2700 lost at
+  -78 dBm), not proven.
+- **Spotify** does not appear as a linkable source for the ESP32 (expected, `linkable: false` in the API capture).
+- **Still untested:** the mute marker (parity guess), fades on rejoin and after a Wi-Fi gap against a real source,
+  volume curve against the source's own volume, a longer run (heap dipped to 16-17 KB under a weak link).
