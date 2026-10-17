@@ -17,12 +17,12 @@ NetworkLink, BeoLink are Bang & Olufsen trademarks, used only to name protocols.
 | mDNS records, WebSocket snapshot, peer discovery | **verified on hardware** |
 | NetworkLink listener handshake | byte-identical to beo's wire code (**host**); works against beo's Python source and a **real Beoplay M5** (B&O Radio) (**hardware**) |
 | Receiving a real stream (M5 B&O Radio: 48 kHz PCM, 0 loss on a steady link) | **verified on hardware** |
-| Hearing it | **not done: no DAC was attached**, so audio quality is unverified |
-| Drift correction, mute fades, clean rejoin (Phase 3) | not started |
-| Line-in of a Beoplay M5 / Beosound Moment | **blocked**: their `PROPRIETARY` stream is encrypted, and a source refuses a listener that does not claim the scheme (findings section 11) |
+| Hearing it | **verified by ear (MAX98357A)**: test tone and B&O Radio from an M3/M5 play, with occasional break-ups |
+| Drift correction, mute fades, clean rejoin (Phase 3) | drift correction and fades **built, host-tested, partly measured** (fill still above target); mute marker and rejoin untested |
+| Line-in of a Beoplay M5 / Beosound Moment | **encrypted, not supported** (measured: full-scale noise on a silent input, receiver logs `Encryption ON`; findings section 14). Unprotected sources such as B&O Radio work |
 | Enrolment in the network's shared configuration | done once on the author's network; the leader's reply is not read (see CLAUDE.md) |
 
-Buffer: about 144 ms on a plain ESP32 beside Wi-Fi, the web UI and the servers (heap-limited; more needs PSRAM).
+Buffer: about 216 ms on a plain ESP32 beside Wi-Fi, the web UI and the servers (heap-limited; more needs PSRAM).
 
 ## Quick start
 

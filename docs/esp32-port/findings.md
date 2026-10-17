@@ -1222,3 +1222,49 @@ Things this run settled or changed:
 - **Wi-Fi on the test board is weak** (-67 to -85 dBm next to the AP, TX power at its 19.5 dBm maximum).
 - **Audio output: not heard.** The 1 kHz test tone (Settings > Audio) ran with I2S on BCK 26 / LRCK 25 / DATA 22; the
   PCM5102 board's configuration pads are unbridged (see docs/hardware.md).
+
+---
+
+## 14. The Moment's line-in is encrypted (measured, 2026-10-17)
+
+Both of the developer's suggestions that could be run were run. The result: the Moment's `PROPRIETARY` line-in
+stream (magic 0x4321) is encrypted. Nothing here decodes it, and this project does not try (see section 13).
+
+- **A real B&O listener's log (read-only download from the M5).** The M5 joined the Moment's line-in (join, leave,
+  join), with nothing playing on the connected device. Each join logged `Stream ID changed to 18`, `Switching to
+  audio format: S16LE, 48000 Hz, 2 channels`, `Pushing content-protection event: encryption_enabled=1` and
+  `fpsdecrypter: Encryption ON`, and **never `Encryption OFF`**. The older B&O Radio join on the same M5 (2026-10-07)
+  logged `encryption_enabled=1`, `content protection state: FALSE`, `encryption_enabled=0` and `Encryption OFF`
+  75 ms after `ON`: the pattern the developer saw on his M3 and Edge. The audio-format line is the same for protected
+  and unprotected streams and says nothing about encryption (an earlier remark here that it is "the format after
+  decryption" was an inference, and is withdrawn). The config line shows `HdcpStreamParameters` with `streamCtr` 0 and an
+  empty `keyBlob`.
+- **A silent line-in capture, complete datagrams.** Run with `tools/capture_fps.py --serial 99399282 --join` from the
+  Mac, using the ESP32's own (enrolled) identity while the ESP32 was unplugged: a source only accepts jids that are in
+  the network's configuration, and a fresh identity was refused with `Device not found in config`. 3971 datagrams in
+  40 s, all 1972 B, all magic 0x4321 (beo's parser counts them as `bad_magic`; the raw datagrams are kept).
+  Header of the first datagram: `4321 ee5f 0002 9500 004122b2f326ad7d`, then 16 bytes of `ff`, then `0304105e`
+  and the payload. The owner joined an M3 to the same line-in afterwards and heard silence (owner report), so the
+  source was silent.
+- **Payload over 200 datagrams, offset 52:** entropy 7.978 bits/byte (the one-datagram figure of 7.756 in section 13
+  was a small-sample artefact), 0.48 % zero bytes, mean |sample| as S16LE 16376 (about half of full scale). Plain
+  PCM of silence would be almost all zero bytes in any byte order. About 10 of the 120 16-byte blocks in a datagram
+  repeat; where they fall was not examined.
+- **Conclusion.** The stream is encrypted, not another framing or PCM layout. It cannot be played by this project.
+  The developer's own M3/Edge line-ins send plain 0x1234 PCM, so the Moment (2015) and M5 (2016) differ from them.
+- **The Moment's NSDK log route is closed.** `/api/setData` and `/api/getData` on the Moment, the M5 and the M3
+  answer `path not whitelisted` for every path tried (`systemManager:createLogFile`, `systemManager:`, `network:info`
+  and `getRows`). The M5 nevertheless built a log archive when asked by the owner. It serves the file slowly (an
+  archive of about 856 KB; use a long curl timeout) and a download made before the create command has finished returns
+  the previous archive: check the newest timestamp inside before reading it.
+- **Sources that remain usable:** anything that sends plain PCM and logs `Encryption OFF` (B&O Radio on the M3 and
+  M5, `NONE`). The `DECIMATE` retest is dropped: the Moment's line-in is encrypted whichever scheme we declare.
+
+### 14.1 Heard on hardware (2026-10-17)
+
+- A MAX98357A I2S amplifier on BCLK 26 / LRC 25 / DIN 22 plays the 1 kHz test tone (owner: very loud even at 20 %
+  volume) and plays B&O Radio from the M3/M5 with occasional break-ups (owner report).
+- The 15-minute serial log of a B&O Radio stream: about 40,000 datagrams, 9 lost, 55 underruns, 333 overruns, about 5
+  drift corrections per second, fill 120 to 192 ms. The break-ups match the underruns, not loss. The fill averages
+  around 7.7 blocks against a target of 4: the correction rate (one frame per 8 blocks at most) is too low.
+- The test board's Wi-Fi stays at -75 to -78 dBm at 2 metres in line of sight (owner): a board problem.

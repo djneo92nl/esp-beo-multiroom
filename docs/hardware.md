@@ -33,3 +33,10 @@ ESP32-P4.
   silkscreen reads H..L left to right), or wire XSMT to A3V3 and FMT, DEMP, FLT to AGND.
 - SCK to GND. Test with Settings > Audio > "Play test tone (5 s)" before involving the network.
 - The firmware drives I2S 16-bit stereo, Philips format, 44.1 or 48 kHz from the stream header.
+
+## MAX98357A (tested 2026-10-17, heard)
+
+An I2S amplifier with a speaker, no MCLK and no configuration pads, on the same default pins: BCLK to GPIO 26,
+LRC to GPIO 25, DIN to GPIO 22, VIN to 5 V (3V3 is quieter), GND to GND. Leave SD and GAIN unconnected (mono mix of
+left and right, about 9 dB; SD to ground shuts the amp off; clone boards vary). Speaker on the amp's `+` and `-`.
+The test tone and B&O Radio play (owner report); it is loud even at 20 % volume.
